@@ -1,4 +1,4 @@
-import TileModel from './TileModel';
+import TileModel, { TileColor } from './TileModel';
 
 export default class FieldModel {
 	width: number;
@@ -15,14 +15,23 @@ export default class FieldModel {
 
 	generate() {
 		this.grid = [];
-		const colors = ['red', 'green', 'blue', 'yellow', 'purple'];
+
+		const colors: TileColor[] = [
+			TileColor.Red,
+			TileColor.Green,
+			TileColor.Blue,
+			TileColor.Yellow,
+			TileColor.Purple,
+		];
 
 		for (let y = 0; y < this.height; y++) {
 			const row: (TileModel | null)[] = [];
+
 			for (let x = 0; x < this.width; x++) {
 				const color = colors[Math.floor(Math.random() * colors.length)];
 				row.push(new TileModel(color));
 			}
+
 			this.grid.push(row);
 		}
 	}
