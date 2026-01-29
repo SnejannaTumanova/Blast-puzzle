@@ -6,11 +6,15 @@ export enum TileColor {
 	Purple = 'purple',
 }
 
+let TILE_ID_SEQ = 1;
+
 export default class TileModel {
-	color: TileColor; // Цвет тайла
-	isSpecial: boolean = false; // Супер-тайл или нет
+	readonly id: number;
+	color: TileColor;
+	isSpecial: boolean = false;
 
 	constructor(color: TileColor) {
+		this.id = TILE_ID_SEQ++;
 		this.color = color;
 	}
 }
