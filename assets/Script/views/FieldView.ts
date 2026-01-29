@@ -17,14 +17,12 @@ export default class FieldView extends cc.Component {
 	@property
 	gap: number = 10;
 
-	// Сдвиг доски относительно (0,0) FieldView
 	@property
 	offsetX: number = 0;
 
 	@property
 	offsetY: number = 0;
 
-	// Debug: рисовать сетку клеток
 	@property
 	debugDrawHitRects: boolean = false;
 
@@ -38,11 +36,9 @@ export default class FieldView extends cc.Component {
 	private builtW = 0;
 	private builtH = 0;
 
-	// Руты (чтобы removeAllChildren не убивал debug)
 	private tilesRoot: cc.Node = null;
 	private debugRoot: cc.Node = null;
 
-	// Debug gfx (отдельный child поверх тайлов)
 	private debugGfx: cc.Graphics = null;
 
 	private inputEnabled: boolean = true;
@@ -57,23 +53,17 @@ export default class FieldView extends cc.Component {
 
 		this.debugRoot = new cc.Node('DebugRoot');
 		this.debugRoot.parent = this.node;
-		this.debugRoot.zIndex = 99999;
+		this.debugRoot.zIndex = 999;
 
 		this.debugGfx = this.debugRoot.addComponent(cc.Graphics);
 		this.debugGfx.lineWidth = 2;
 		this.debugGfx.strokeColor = cc.Color.CYAN;
-
-		// Клики считаем глобально (не через TileView)
-		const canvas = cc.Canvas.instance?.node || cc.find('game/GameCanvas');
-		if (canvas) {
-			canvas.on(cc.Node.EventType.TOUCH_START, this.onGlobalTouch, this, true);
-		}
 	}
 
 	onDestroy() {
 		const canvas = cc.Canvas.instance?.node || cc.find('game/GameCanvas');
 		if (canvas) {
-			canvas.off(cc.Node.EventType.TOUCH_START, this.onGlobalTouch, this, true);
+			canvas.off(cc.Node.EventType.TOUCH_START, this.onGlobalTouch, this);
 		}
 	}
 
@@ -393,6 +383,8 @@ export default class FieldView extends cc.Component {
 
 		const halfW = this.node.width / 2;
 		const halfH = this.node.height / 2;
+
+		// Быстрый отсев: вообще внутри прямоугольника доски?
 		if (
 			local.x < -halfW ||
 			local.x > halfW ||
@@ -404,20 +396,43 @@ export default class FieldView extends cc.Component {
 
 		const o = this.getBoardOrigin(this.currentModel);
 
+		// relX/relY считаются от ЦЕНТРА (0,0) первой клетки (o.startX/o.startY)
 		const relX = local.x - o.startX;
 		const relY = o.startY - local.y;
 
-		const cx = Math.round(relX / o.step);
-		const cy = Math.round(relY / o.step);
+		// Индекс клетки как "round", но стабильнее:
+		const cx = Math.floor(relX / o.step + 0.5);
+		const cy = Math.floor(relY / o.step + 0.5);
 
 		if (cx < 0 || cx >= this.currentModel.width) return;
 		if (cy < 0 || cy >= this.currentModel.height) return;
 
-		const inCellX = Math.abs(relX - cx * o.step) <= this.tileSize / 2;
-		const inCellY = Math.abs(relY - cy * o.step) <= this.tileSize / 2;
+		// Проверка, что попали именно в тайл, а не в gap
+		const dx = relX - cx * o.step;
+		const dy = relY - cy * o.step;
+
+		const inCellX = Math.abs(dx) <= this.tileSize / 2;
+		const inCellY = Math.abs(dy) <= this.tileSize / 2;
+
 		if (!inCellX || !inCellY) return;
 
-		// ✅ y совпадает: modelY === viewY
+		// ВАЖНО: стопаем только если реально обработали клик по тайлу
+		e.stopPropagation();
+
 		this.onTileClick && this.onTileClick(cx, cy);
+	}
+
+	enableGlobalInput() {
+		const canvas = cc.Canvas.instance?.node;
+		if (canvas) {
+			canvas.on(cc.Node.EventType.TOUCH_START, this.onGlobalTouch, this);
+		}
+	}
+
+	disableGlobalInput() {
+		const canvas = cc.Canvas.instance?.node;
+		if (canvas) {
+			canvas.off(cc.Node.EventType.TOUCH_START, this.onGlobalTouch, this);
+		}
 	}
 }

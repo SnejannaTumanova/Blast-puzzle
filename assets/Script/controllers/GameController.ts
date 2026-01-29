@@ -44,28 +44,18 @@ export default class GameController {
 
 		if (this.gameState.movesLeft <= 0) return;
 		const tile = this.fieldModel.getTile(x, y);
-		cc.log(`[CLICK] x=${x} y=${y} modelColor=${tile ? tile.color : 'null'}`);
 
 		const group = this.fieldModel.getBurnGroup(x, y, this.MIN_GROUP);
-		cc.log(
-			`[GROUP] size=${group.length} cells=${group
-				.map((p) => `(${p.x},${p.y})`)
-				.join(',')}`
-		);
-
-		// const group: CellPos[] = this.fieldModel.getBurnGroup(x, y, this.MIN_GROUP);
 		if (group.length === 0) return;
 
 		this.isBusy = true;
 
-		// 1) анимация сгорания
+		// анимация сгорания
 		this.fieldView.playBurn(group, () => {
-			// 2) применяем модель
 			this.fieldModel.applyBurn(group);
 
-			// 3) анимация падения и досыпа
+			// анимация падения и досыпа
 			this.fieldView.applyModelAnimated(this.fieldModel, () => {
-				// ход состоялся
 				this.gameState.movesLeft -= 1;
 
 				const burned = group.length;

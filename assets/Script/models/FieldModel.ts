@@ -133,15 +133,7 @@ export default class FieldModel {
 	}
 
 	/** Заполнить пустоты сверху новыми тайлами */
-	// private refillTop() {
-	// 	for (let y = 0; y < this.height; y++) {
-	// 		for (let x = 0; x < this.width; x++) {
-	// 			if (this.grid[y][x] === null) {
-	// 				this.grid[y][x] = this.randomTile();
-	// 			}
-	// 		}
-	// 	}
-	// }
+
 	private refillTop() {
 		for (let x = 0; x < this.width; x++) {
 			for (let y = 0; y < this.height; y++) {

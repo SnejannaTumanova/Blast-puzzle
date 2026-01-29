@@ -20,26 +20,16 @@ export default class GameScene extends cc.Component {
 	boostersView: BoostersView = null;
 
 	@property(ResultOverlayView)
-	resultOverlay: ResultOverlayView = null;
+	resultOverlayView: ResultOverlayView = null;
 
 	start() {
-		cc.log(
-			'[GameScene] start. fieldView=',
-			!!this.fieldView,
-			'tilePrefab=',
-			!!this.fieldView?.tilePrefab
-		);
-
 		const fieldModel = new FieldModel(8, 8);
 		const gameState = new GameStateModel(37, 500);
 
-		cc.log('[GameScene] models created');
-
-		// начальные бустеры (пока просто UI)
 		this.boostersView.setSwapCount(5);
 		this.boostersView.setBombCount(3);
+		this.fieldView.enableGlobalInput();
 
-		// ✅ создаём контроллер
 		const controller = new GameController(
 			fieldModel,
 			gameState,
@@ -48,26 +38,27 @@ export default class GameScene extends cc.Component {
 			this.boostersView
 		);
 
-		cc.log('[GameScene] controller created');
-
-		// ✅ restart
-		if (this.resultOverlay) {
-			this.resultOverlay.onRestart = () => {
+		if (this.resultOverlayView) {
+			this.resultOverlayView.onRestart = () => {
 				cc.director.loadScene(cc.director.getScene().name);
 			};
 		}
 
-		// ✅ обработка конца игры
 		controller.onGameEnd = (type, reason) => {
 			this.fieldView.setInputEnabled(false);
 
-			if (!this.resultOverlay) return;
+			if (!this.resultOverlayView) {
+				cc.warn('[GameScene] resultOverlay is null');
+				return;
+			}
 
 			if (type === 'win') {
-				this.resultOverlay.show('Победа!', reason);
+				this.resultOverlayView.show('Победа!', reason);
 			} else {
-				this.resultOverlay.show('Поражение', reason);
+				this.resultOverlayView.show('Поражение', reason);
 			}
+
+			this.fieldView.disableGlobalInput();
 		};
 	}
 }
