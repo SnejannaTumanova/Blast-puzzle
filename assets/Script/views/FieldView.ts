@@ -11,20 +11,30 @@ export default class FieldView extends cc.Component {
 	@property(cc.Prefab)
 	tilePrefab: cc.Prefab = null;
 
+	/** Ширина клетки (лучше поставить = prefab tile width, у тебя 100) */
 	@property
-	tileSize: number = 80;
+	cellW: number = 100;
+
+	/** Высота клетки (лучше поставить = prefab tile height, у тебя 112) */
+	@property
+	cellH: number = 112;
 
 	@property
 	gap: number = 10;
 
+	// Сдвиг доски относительно (0,0) FieldView
 	@property
 	offsetX: number = 0;
 
 	@property
 	offsetY: number = 0;
 
+	// Debug: рисовать сетку клеток
 	@property
 	debugDrawHitRects: boolean = false;
+
+	@property(cc.SpriteFrame)
+	selectFrame: cc.SpriteFrame = null;
 
 	onTileClick: ((x: number, y: number) => void) | null = null;
 
@@ -36,12 +46,18 @@ export default class FieldView extends cc.Component {
 	private builtW = 0;
 	private builtH = 0;
 
+	// Руты (чтобы removeAllChildren не убивал debug)
 	private tilesRoot: cc.Node = null;
 	private debugRoot: cc.Node = null;
 
+	// Debug gfx (отдельный child поверх тайлов)
 	private debugGfx: cc.Graphics = null;
 
 	private inputEnabled: boolean = true;
+
+	private selectedCell: { x: number; y: number } | null = null;
+
+	private selectNode: cc.Node = null;
 
 	setInputEnabled(v: boolean) {
 		this.inputEnabled = v;
@@ -58,13 +74,33 @@ export default class FieldView extends cc.Component {
 		this.debugGfx = this.debugRoot.addComponent(cc.Graphics);
 		this.debugGfx.lineWidth = 2;
 		this.debugGfx.strokeColor = cc.Color.CYAN;
+
+		const selNode = new cc.Node('SelectOverlay');
+		selNode.parent = this.node;
+		selNode.zIndex = 1000;
+		selNode.opacity = 0;
+
+		const sp = selNode.addComponent(cc.Sprite);
+		sp.spriteFrame = this.selectFrame;
+
+		// чтобы углы не тянулись (если настроил Borders у spriteFrame)
+		sp.type = cc.Sprite.Type.SLICED;
+
+		// размер выставим позже в drawSelectedCell()
+		this.selectNode = selNode;
+	}
+
+	onEnable() {
+		// ✅ Ловим тач прямо на FieldView (не на Canvas)
+		this.enableInput();
+	}
+
+	onDisable() {
+		this.disableInput();
 	}
 
 	onDestroy() {
-		const canvas = cc.Canvas.instance?.node || cc.find('game/GameCanvas');
-		if (canvas) {
-			canvas.off(cc.Node.EventType.TOUCH_START, this.onGlobalTouch, this);
-		}
+		this.disableInput();
 	}
 
 	// ===== Public API =====
@@ -73,7 +109,6 @@ export default class FieldView extends cc.Component {
 		this.currentModel = model;
 		this.buildIfNeeded(model);
 		this.syncToModelInstant(model);
-
 		this.scheduleOnce(() => this.drawDebug(), 0);
 	}
 
@@ -84,7 +119,6 @@ export default class FieldView extends cc.Component {
 
 		let left = group.length;
 		for (const p of group) {
-			// group приходит в МОДЕЛЬНЫХ координатах (x,y), y=0 сверху — совпадает с viewY
 			const vy = p.y;
 			const node = this.getNode(p.x, vy);
 
@@ -122,9 +156,7 @@ export default class FieldView extends cc.Component {
 				const node = this.tileNodes[vy][x];
 				if (!node) continue;
 				const tv = node.getComponent(TileView);
-				if (tv && tv.tileId !== -1) {
-					idToNode.set(tv.tileId, node);
-				}
+				if (tv && tv.tileId !== -1) idToNode.set(tv.tileId, node);
 			}
 		}
 
@@ -137,7 +169,7 @@ export default class FieldView extends cc.Component {
 		const tweens: cc.Tween[] = [];
 		const usedIds = new Set<number>();
 
-		// 3) пройти по НОВОЙ модели и расставить ноды (viewY === modelY)
+		// 3) пройти по новой модели и расставить ноды
 		for (let vy = 0; vy < model.height; vy++) {
 			for (let x = 0; x < model.width; x++) {
 				const tileModel = model.getTile(x, vy);
@@ -150,20 +182,16 @@ export default class FieldView extends cc.Component {
 					usedIds.add(id);
 					newNodes[vy][x] = node;
 
-					// на всякий случай держим под tilesRoot
-					if (this.tilesRoot && node.parent !== this.tilesRoot) {
+					if (this.tilesRoot && node.parent !== this.tilesRoot)
 						node.parent = this.tilesRoot;
-					}
 
-					// обновим визуал
 					const tv = node.getComponent(TileView);
 					tv.init(tileModel);
 
 					const to = this.cellToPos(x, vy, model);
 					tweens.push(cc.tween(node).to(0.18, { position: cc.v3(to.x, to.y) }));
 				} else {
-					// новый тайл — создать и уронить сверху
-					node = this.createTileNode(tileModel, x, vy, model);
+					node = this.createTileNode(tileModel);
 					newNodes[vy][x] = node;
 
 					// спавним выше верхней строки
@@ -177,7 +205,7 @@ export default class FieldView extends cc.Component {
 			}
 		}
 
-		// 4) уничтожить ноды, которых больше нет в модели (сгоревшие)
+		// 4) уничтожить ноды, которых больше нет в модели
 		idToNode.forEach((node, id) => {
 			if (!usedIds.has(id)) {
 				if (node && node.isValid) node.destroy();
@@ -204,6 +232,8 @@ export default class FieldView extends cc.Component {
 				}
 			}).start();
 		}
+
+		this.scheduleOnce(() => this.drawSelectedCell(), 0);
 	}
 
 	// ===== Internal =====
@@ -217,15 +247,14 @@ export default class FieldView extends cc.Component {
 			return;
 		}
 
-		// чистим ТОЛЬКО тайлы, а не debug
 		if (this.tilesRoot) this.tilesRoot.removeAllChildren();
 
 		this.builtW = model.width;
 		this.builtH = model.height;
 
-		// правильный размер без лишнего gap по краям
-		const boardW = model.width * this.tileSize + (model.width - 1) * this.gap;
-		const boardH = model.height * this.tileSize + (model.height - 1) * this.gap;
+		// ✅ разный размер клетки по X/Y
+		const boardW = model.width * this.cellW + (model.width - 1) * this.gap;
+		const boardH = model.height * this.cellH + (model.height - 1) * this.gap;
 
 		this.node.setContentSize(boardW, boardH);
 		this.node.setAnchorPoint(0.5, 0.5);
@@ -239,7 +268,7 @@ export default class FieldView extends cc.Component {
 			for (let x = 0; x < model.width; x++) {
 				const m = model.getTile(x, vy);
 				if (!m) continue;
-				this.tileNodes[vy][x] = this.createTileNode(m, x, vy, model);
+				this.tileNodes[vy][x] = this.createTileNode(m);
 			}
 		}
 
@@ -247,7 +276,6 @@ export default class FieldView extends cc.Component {
 	}
 
 	private syncToModelInstant(model: FieldModel) {
-		// если где-то не хватает нод — создадим/удалим
 		for (let vy = 0; vy < model.height; vy++) {
 			for (let x = 0; x < model.width; x++) {
 				const m = model.getTile(x, vy);
@@ -260,7 +288,7 @@ export default class FieldView extends cc.Component {
 				}
 
 				if (m && !node) {
-					node = this.createTileNode(m, x, vy, model);
+					node = this.createTileNode(m);
 					this.tileNodes[vy][x] = node;
 				}
 			}
@@ -277,8 +305,7 @@ export default class FieldView extends cc.Component {
 				const tileModel = model.getTile(x, vy);
 				if (!node || !tileModel) continue;
 
-				const tv = node.getComponent(TileView);
-				tv.init(tileModel);
+				node.getComponent(TileView)?.init(tileModel);
 			}
 		}
 	}
@@ -295,41 +322,34 @@ export default class FieldView extends cc.Component {
 		}
 	}
 
-	private createTileNode(
-		tileModel: TileModel,
-		x: number,
-		viewY: number,
-		model: FieldModel
-	): cc.Node {
+	private createTileNode(tileModel: TileModel): cc.Node {
 		const tile = cc.instantiate(this.tilePrefab);
 		tile.parent = this.tilesRoot ? this.tilesRoot : this.node;
 
-		tile.width = this.tileSize;
-		tile.height = this.tileSize;
-
-		const tv = tile.getComponent(TileView);
-		tv.init(tileModel);
+		// ✅ НЕ меняем tile.width/height — пусть совпадает с prefab (100x112)
+		tile.getComponent(TileView)?.init(tileModel);
 
 		return tile;
 	}
 
 	private getBoardOrigin(model: FieldModel) {
-		const step = this.tileSize + this.gap;
+		const stepX = this.cellW + this.gap;
+		const stepY = this.cellH + this.gap;
 
-		const totalW = model.width * this.tileSize + (model.width - 1) * this.gap;
-		const totalH = model.height * this.tileSize + (model.height - 1) * this.gap;
+		const totalW = model.width * this.cellW + (model.width - 1) * this.gap;
+		const totalH = model.height * this.cellH + (model.height - 1) * this.gap;
 
-		const startX = -totalW / 2 + this.tileSize / 2 + this.offsetX;
-		const startY = totalH / 2 - this.tileSize / 2 + this.offsetY;
+		const startX = -totalW / 2 + this.cellW / 2 + this.offsetX;
+		const startY = totalH / 2 - this.cellH / 2 + this.offsetY;
 
-		return { startX, startY, step };
+		return { startX, startY, stepX, stepY, totalW, totalH };
 	}
 
 	private cellToPos(x: number, viewY: number, model: FieldModel) {
 		const o = this.getBoardOrigin(model);
 		return {
-			x: o.startX + x * o.step,
-			y: o.startY - viewY * o.step,
+			x: o.startX + x * o.stepX,
+			y: o.startY - viewY * o.stepY,
 		};
 	}
 
@@ -362,77 +382,99 @@ export default class FieldView extends cc.Component {
 			for (let x = 0; x < this.currentModel.width; x++) {
 				const p = this.cellToPos(x, vy, this.currentModel);
 				g.rect(
-					p.x - this.tileSize / 2,
-					p.y - this.tileSize / 2,
-					this.tileSize,
-					this.tileSize
+					p.x - this.cellW / 2,
+					p.y - this.cellH / 2,
+					this.cellW,
+					this.cellH
 				);
 			}
 		}
 		g.stroke();
+
+		this.scheduleOnce(() => this.drawSelectedCell(), 0);
 	}
 
-	// ===== Input (global) =====
+	// ===== Input (local) =====
 
-	private onGlobalTouch(e: cc.Event.EventTouch) {
+	private onLocalTouch(e: cc.Event.EventTouch) {
 		if (!this.inputEnabled) return;
 		if (this.isAnimating || !this.currentModel) return;
 
 		const screen = e.getLocation();
 		const local = this.node.convertToNodeSpaceAR(cc.v3(screen.x, screen.y));
 
-		const halfW = this.node.width / 2;
-		const halfH = this.node.height / 2;
-
-		// Быстрый отсев: вообще внутри прямоугольника доски?
-		if (
-			local.x < -halfW ||
-			local.x > halfW ||
-			local.y < -halfH ||
-			local.y > halfH
-		) {
-			return;
-		}
-
 		const o = this.getBoardOrigin(this.currentModel);
 
-		// relX/relY считаются от ЦЕНТРА (0,0) первой клетки (o.startX/o.startY)
-		const relX = local.x - o.startX;
-		const relY = o.startY - local.y;
+		// координаты от верхнего-левого угла доски (в локальных координатах FieldView)
+		const left = -o.totalW / 2 + this.offsetX;
+		const top = o.totalH / 2 + this.offsetY;
 
-		// Индекс клетки как "round", но стабильнее:
-		const cx = Math.floor(relX / o.step + 0.5);
-		const cy = Math.floor(relY / o.step + 0.5);
+		const px = local.x - left; // 0..totalW
+		const py = top - local.y; // 0..totalH (вниз)
+
+		// быстрый отсев по прямоугольнику доски
+		if (px < 0 || px > o.totalW || py < 0 || py > o.totalH) return;
+
+		const cx = Math.floor(px / o.stepX);
+		const cy = Math.floor(py / o.stepY);
 
 		if (cx < 0 || cx >= this.currentModel.width) return;
 		if (cy < 0 || cy >= this.currentModel.height) return;
 
-		// Проверка, что попали именно в тайл, а не в gap
-		const dx = relX - cx * o.step;
-		const dy = relY - cy * o.step;
-
-		const inCellX = Math.abs(dx) <= this.tileSize / 2;
-		const inCellY = Math.abs(dy) <= this.tileSize / 2;
-
+		// проверка gap: клик должен попасть в тело тайла, а не в промежуток
+		const inCellX = px - cx * o.stepX <= this.cellW;
+		const inCellY = py - cy * o.stepY <= this.cellH;
 		if (!inCellX || !inCellY) return;
 
-		// ВАЖНО: стопаем только если реально обработали клик по тайлу
 		e.stopPropagation();
-
-		this.onTileClick && this.onTileClick(cx, cy);
+		this.onTileClick?.(cx, cy);
 	}
 
-	enableGlobalInput() {
-		const canvas = cc.Canvas.instance?.node;
-		if (canvas) {
-			canvas.on(cc.Node.EventType.TOUCH_START, this.onGlobalTouch, this);
+	// публично, чтобы GameScene мог включать/выключать
+	enableInput() {
+		this.node.on(cc.Node.EventType.TOUCH_START, this.onLocalTouch, this);
+	}
+
+	disableInput() {
+		this.node.off(cc.Node.EventType.TOUCH_START, this.onLocalTouch, this);
+	}
+
+	showSelectedCell(x: number, y: number) {
+		this.selectedCell = { x, y };
+		this.drawSelectedCell();
+	}
+
+	clearSelectedCell() {
+		this.selectedCell = null;
+		if (this.selectNode && this.selectNode.isValid) {
+			this.selectNode.stopAllActions();
+			this.selectNode.opacity = 0;
+			this.selectNode.scale = 1;
 		}
 	}
 
-	disableGlobalInput() {
-		const canvas = cc.Canvas.instance?.node;
-		if (canvas) {
-			canvas.off(cc.Node.EventType.TOUCH_START, this.onGlobalTouch, this);
-		}
+	private drawSelectedCell() {
+		if (!this.selectNode || !this.currentModel || !this.selectedCell) return;
+
+		const { x, y } = this.selectedCell;
+		const p = this.cellToPos(x, y, this.currentModel);
+
+		const pad = 6;
+		const w = this.cellW + pad * 2;
+		const h = this.cellH + pad * 2;
+
+		this.selectNode.setPosition(p.x, p.y);
+		this.selectNode.setContentSize(w, h);
+
+		this.selectNode.stopAllActions();
+		this.selectNode.opacity = 0;
+		this.selectNode.scale = 0.9;
+
+		this.selectNode.runAction(
+			cc.spawn(
+				cc.fadeTo(0.1, 255),
+				cc.sequence(cc.scaleTo(0.1, 1.06), cc.scaleTo(0.08, 1.0))
+			)
+		);
 	}
 }

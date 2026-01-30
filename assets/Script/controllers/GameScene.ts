@@ -3,10 +3,11 @@ import GameStateModel from '../models/GameStateModel';
 import FieldView from '../views/FieldView';
 import HUDView from '../views/HUDView';
 import BoostersView from '../views/BoostersView';
-import GameController from './GameController';
+import GameController from '../controllers/GameController';
 import ResultOverlayView from '../views/ResultOverlayView';
 import { LEVELS } from '../config/LevelConfig';
 import { getLevelIndex, setLevelIndex } from '../config/Progress';
+import { resetBoostersState } from '../config/BoostersProgress';
 
 const { ccclass, property } = cc._decorator;
 
@@ -36,13 +37,8 @@ export default class GameScene extends cc.Component {
 		const fieldModel = new FieldModel(8, 8);
 		const gameState = new GameStateModel(level.moves, level.targetScore);
 
-		// UI
-		this.boostersView?.setSwapCount(5);
-		this.boostersView?.setBombCount(3);
-
 		// Input
 		this.fieldView?.setInputEnabled(true);
-		this.fieldView?.enableGlobalInput();
 
 		const controller = new GameController(
 			fieldModel,
@@ -55,25 +51,26 @@ export default class GameScene extends cc.Component {
 		// Overlay callbacks
 		if (this.resultOverlayView) {
 			this.resultOverlayView.onRestart = () => {
-				// тот же уровень
+				// ✅ тот же уровень; бустеры НЕ сбрасываем
 				cc.director.loadScene(cc.director.getScene().name);
 			};
 
 			this.resultOverlayView.onNext = () => {
 				if (isLastLevel) {
-					// ✅ последняя победа → начать заново с 1 уровня
+					// ✅ PLAY AGAIN → начать с 1 уровня и сбросить бустеры
 					setLevelIndex(0);
+					resetBoostersState({ swapLeft: 5, bombLeft: 3 });
 				} else {
-					// ✅ следующий уровень
+					// ✅ следующий уровень; бустеры НЕ сбрасываем
 					setLevelIndex(levelIndex + 1);
 				}
+
 				cc.director.loadScene(cc.director.getScene().name);
 			};
 		}
 
 		controller.onGameEnd = (type, reason) => {
 			this.fieldView?.setInputEnabled(false);
-			this.fieldView?.disableGlobalInput();
 
 			if (!this.resultOverlayView) return;
 
@@ -82,7 +79,6 @@ export default class GameScene extends cc.Component {
 					type: 'win',
 					title: 'Победа!',
 					body: reason,
-					// ✅ показываем кнопку и на последнем уровне тоже
 					canNext: true,
 					nextText: isLastLevel ? 'PLAY AGAIN' : 'NEXT LEVEL',
 				});

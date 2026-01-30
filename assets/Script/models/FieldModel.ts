@@ -43,6 +43,42 @@ export default class FieldModel {
 		return this.grid[y][x];
 	}
 
+	setTile(x: number, y: number, t: TileModel | null) {
+		if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
+		this.grid[y][x] = t;
+	}
+
+	// ===== BOOSTERS =====
+
+	/** Поменять два тайла местами (Swap booster) */
+	swapTiles(a: CellPos, b: CellPos) {
+		if (!this.getTile(a.x, a.y) && this.getTile(a.x, a.y) !== null) return;
+		if (!this.getTile(b.x, b.y) && this.getTile(b.x, b.y) !== null) return;
+
+		// (проще) просто свапаем по индексам; null тоже свапается нормально
+		const t1 = this.getTile(a.x, a.y);
+		const t2 = this.getTile(b.x, b.y);
+		this.setTile(a.x, a.y, t2);
+		this.setTile(b.x, b.y, t1);
+	}
+
+	/** Клетки в квадратном радиусе R вокруг (x,y). Для 5x5 нужно R=2 */
+	getCellsInRadius(x: number, y: number, r: number): CellPos[] {
+		const res: CellPos[] = [];
+
+		for (let yy = y - r; yy <= y + r; yy++) {
+			for (let xx = x - r; xx <= x + r; xx++) {
+				if (xx < 0 || xx >= this.width || yy < 0 || yy >= this.height) continue;
+				if (!this.getTile(xx, yy)) continue; // не добавляем пустые
+				res.push({ x: xx, y: yy });
+			}
+		}
+
+		return res;
+	}
+
+	// ===== Moves / Groups =====
+
 	/** Есть ли вообще ход (существует группа >=minGroupSize) */
 	hasAnyMove(minGroupSize: number = 2): boolean {
 		const visited = new Set<string>();
@@ -118,21 +154,18 @@ export default class FieldModel {
 	private collapseDown() {
 		for (let x = 0; x < this.width; x++) {
 			const col: (TileModel | null)[] = [];
-			// берём снизу вверх, собираем не-null
+
 			for (let y = this.height - 1; y >= 0; y--) {
 				const t = this.grid[y][x];
 				if (t) col.push(t);
 			}
 
-			// заполняем колонку снизу вверх: сначала существующие, потом null
 			for (let y = this.height - 1; y >= 0; y--) {
 				const idx = this.height - 1 - y; // 0 внизу
 				this.grid[y][x] = col[idx] ?? null;
 			}
 		}
 	}
-
-	/** Заполнить пустоты сверху новыми тайлами */
 
 	private refillTop() {
 		for (let x = 0; x < this.width; x++) {
