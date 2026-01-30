@@ -5,6 +5,8 @@ import HUDView from '../views/HUDView';
 import BoostersView from '../views/BoostersView';
 import GameController from './GameController';
 import ResultOverlayView from '../views/ResultOverlayView';
+import { LEVELS } from '../config/LevelConfig';
+import { getLevelIndex, setLevelIndex } from '../config/Progress';
 
 const { ccclass, property } = cc._decorator;
 
@@ -23,12 +25,24 @@ export default class GameScene extends cc.Component {
 	resultOverlayView: ResultOverlayView = null;
 
 	start() {
-		const fieldModel = new FieldModel(8, 8);
-		const gameState = new GameStateModel(37, 500);
+		const levelIndex = this.getSafeLevelIndex();
+		const level = LEVELS[levelIndex];
+		const isLastLevel = levelIndex >= LEVELS.length - 1;
 
-		this.boostersView.setSwapCount(5);
-		this.boostersView.setBombCount(3);
-		this.fieldView.enableGlobalInput();
+		// HUD
+		this.hudView?.setLevel(levelIndex + 1);
+
+		// Модель/стейт уровня
+		const fieldModel = new FieldModel(8, 8);
+		const gameState = new GameStateModel(level.moves, level.targetScore);
+
+		// UI
+		this.boostersView?.setSwapCount(5);
+		this.boostersView?.setBombCount(3);
+
+		// Input
+		this.fieldView?.setInputEnabled(true);
+		this.fieldView?.enableGlobalInput();
 
 		const controller = new GameController(
 			fieldModel,
@@ -38,27 +52,56 @@ export default class GameScene extends cc.Component {
 			this.boostersView
 		);
 
+		// Overlay callbacks
 		if (this.resultOverlayView) {
 			this.resultOverlayView.onRestart = () => {
+				// тот же уровень
+				cc.director.loadScene(cc.director.getScene().name);
+			};
+
+			this.resultOverlayView.onNext = () => {
+				if (isLastLevel) {
+					// ✅ последняя победа → начать заново с 1 уровня
+					setLevelIndex(0);
+				} else {
+					// ✅ следующий уровень
+					setLevelIndex(levelIndex + 1);
+				}
 				cc.director.loadScene(cc.director.getScene().name);
 			};
 		}
 
 		controller.onGameEnd = (type, reason) => {
-			this.fieldView.setInputEnabled(false);
+			this.fieldView?.setInputEnabled(false);
+			this.fieldView?.disableGlobalInput();
 
-			if (!this.resultOverlayView) {
-				cc.warn('[GameScene] resultOverlay is null');
-				return;
-			}
+			if (!this.resultOverlayView) return;
 
 			if (type === 'win') {
-				this.resultOverlayView.show('Победа!', reason);
+				this.resultOverlayView.show({
+					type: 'win',
+					title: 'Победа!',
+					body: reason,
+					// ✅ показываем кнопку и на последнем уровне тоже
+					canNext: true,
+					nextText: isLastLevel ? 'PLAY AGAIN' : 'NEXT LEVEL',
+				});
 			} else {
-				this.resultOverlayView.show('Поражение', reason);
+				this.resultOverlayView.show({
+					type: 'lose',
+					title: 'Поражение',
+					body: reason,
+					canNext: false,
+					nextText: 'NEXT LEVEL',
+				});
 			}
-
-			this.fieldView.disableGlobalInput();
 		};
+	}
+
+	private getSafeLevelIndex(): number {
+		const idx = getLevelIndex();
+		if (idx < 0) return 0;
+		if (idx >= LEVELS.length) return LEVELS.length - 1;
+		return idx;
 	}
 }
