@@ -15,22 +15,33 @@ export default class FieldModel {
 		TileColor.Purple,
 	];
 
+	/** Сколько попыток перегенерации поля, чтобы точно был хотя бы один ход */
+	private readonly MAX_REGEN_TRIES = 20;
+
 	constructor(width: number, height: number) {
 		this.width = width;
 		this.height = height;
 		this.grid = [];
-		this.generate();
+		this.generate(); // гарантируем стартовое поле с ходом
 	}
 
-	generate() {
-		this.grid = [];
-		for (let y = 0; y < this.height; y++) {
-			const row: (TileModel | null)[] = [];
-			for (let x = 0; x < this.width; x++) {
-				row.push(this.randomTile());
+	// ===== Generate / Re-generate =====
+
+	generate(minGroupSize: number = 2) {
+		for (let attempt = 0; attempt < this.MAX_REGEN_TRIES; attempt++) {
+			this.grid = [];
+			for (let y = 0; y < this.height; y++) {
+				const row: (TileModel | null)[] = [];
+				for (let x = 0; x < this.width; x++) row.push(this.randomTile());
+				this.grid.push(row);
 			}
-			this.grid.push(row);
+
+			// ✅ проверка играбельности на старте
+			if (this.hasAnyMove(minGroupSize)) return;
 		}
+
+		// если вдруг совсем не повезло (очень маловероятно),
+		// оставляем последнюю генерацию как есть
 	}
 
 	private randomTile(): TileModel {
@@ -38,13 +49,19 @@ export default class FieldModel {
 		return new TileModel(color);
 	}
 
+	// ===== Basic access =====
+
+	private isInside(x: number, y: number): boolean {
+		return x >= 0 && x < this.width && y >= 0 && y < this.height;
+	}
+
 	getTile(x: number, y: number): TileModel | null {
-		if (x < 0 || x >= this.width || y < 0 || y >= this.height) return null;
+		if (!this.isInside(x, y)) return null;
 		return this.grid[y][x];
 	}
 
 	setTile(x: number, y: number, t: TileModel | null) {
-		if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
+		if (!this.isInside(x, y)) return;
 		this.grid[y][x] = t;
 	}
 
@@ -52,47 +69,72 @@ export default class FieldModel {
 
 	/** Поменять два тайла местами (Swap booster) */
 	swapTiles(a: CellPos, b: CellPos) {
-		if (!this.getTile(a.x, a.y) && this.getTile(a.x, a.y) !== null) return;
-		if (!this.getTile(b.x, b.y) && this.getTile(b.x, b.y) !== null) return;
+		if (!this.isInside(a.x, a.y) || !this.isInside(b.x, b.y)) return;
 
-		// (проще) просто свапаем по индексам; null тоже свапается нормально
-		const t1 = this.getTile(a.x, a.y);
-		const t2 = this.getTile(b.x, b.y);
-		this.setTile(a.x, a.y, t2);
-		this.setTile(b.x, b.y, t1);
+		const t1 = this.grid[a.y][a.x];
+		const t2 = this.grid[b.y][b.x];
+		this.grid[a.y][a.x] = t2;
+		this.grid[b.y][b.x] = t1;
 	}
 
 	/** Клетки в квадратном радиусе R вокруг (x,y). Для 5x5 нужно R=2 */
 	getCellsInRadius(x: number, y: number, r: number): CellPos[] {
 		const res: CellPos[] = [];
-
 		for (let yy = y - r; yy <= y + r; yy++) {
 			for (let xx = x - r; xx <= x + r; xx++) {
-				if (xx < 0 || xx >= this.width || yy < 0 || yy >= this.height) continue;
-				if (!this.getTile(xx, yy)) continue; // не добавляем пустые
+				if (!this.isInside(xx, yy)) continue;
+				if (!this.grid[yy][xx]) continue;
 				res.push({ x: xx, y: yy });
 			}
 		}
-
 		return res;
 	}
 
 	// ===== Moves / Groups =====
 
-	/** Есть ли вообще ход (существует группа >=minGroupSize) */
+	/**
+	 * ✅ Быстрая проверка наличия ходов.
+	 * - для minGroupSize <= 1: всегда true (сжечь можно любой тайл)
+	 * - для minGroupSize == 2: достаточно проверить, есть ли сосед того же цвета
+	 * - для minGroupSize > 2: делаем fallback на поиск групп (редкий кейс)
+	 */
 	hasAnyMove(minGroupSize: number = 2): boolean {
-		const visited = new Set<string>();
+		if (minGroupSize <= 1) return true;
 
+		if (minGroupSize === 2) {
+			for (let y = 0; y < this.height; y++) {
+				for (let x = 0; x < this.width; x++) {
+					const t = this.grid[y][x];
+					if (!t) continue;
+
+					const c = t.color;
+
+					// проверка вправо и вниз, чтобы не дублировать
+					if (x + 1 < this.width) {
+						const r = this.grid[y][x + 1];
+						if (r && r.color === c) return true;
+					}
+					if (y + 1 < this.height) {
+						const d = this.grid[y + 1][x];
+						if (d && d.color === c) return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		// fallback: для minGroupSize > 2
+		const visited = new Set<string>();
 		for (let y = 0; y < this.height; y++) {
 			for (let x = 0; x < this.width; x++) {
-				const t = this.getTile(x, y);
+				const t = this.grid[y][x];
 				if (!t) continue;
 
 				const key = `${x},${y}`;
 				if (visited.has(key)) continue;
 
 				const group = this.findGroup(x, y);
-				group.forEach((p) => visited.add(`${p.x},${p.y}`));
+				for (const p of group) visited.add(`${p.x},${p.y}`);
 
 				if (group.length >= minGroupSize) return true;
 			}
@@ -111,11 +153,14 @@ export default class FieldModel {
 		const result: CellPos[] = [];
 
 		const pushIfValid = (nx: number, ny: number) => {
+			if (!this.isInside(nx, ny)) return;
 			const key = `${nx},${ny}`;
 			if (visited.has(key)) return;
-			const t = this.getTile(nx, ny);
+
+			const t = this.grid[ny][nx];
 			if (!t) return;
 			if (t.color !== color) return;
+
 			visited.add(key);
 			stack.push({ x: nx, y: ny });
 		};
@@ -142,18 +187,28 @@ export default class FieldModel {
 	}
 
 	/** Применить сжигание + падение + досып */
-	applyBurn(group: CellPos[]) {
+	applyBurn(
+		group: CellPos[],
+		ensurePlayableAfter: boolean = false,
+		minGroupSize: number = 2
+	) {
 		for (const p of group) {
-			this.grid[p.y][p.x] = null;
+			if (this.isInside(p.x, p.y)) this.grid[p.y][p.x] = null;
 		}
+
 		this.collapseDown();
 		this.refillTop();
+
+		// опционально: гарантировать, что после хода есть следующий ход
+		if (ensurePlayableAfter && !this.hasAnyMove(minGroupSize)) {
+			this.generate(minGroupSize);
+		}
 	}
 
 	/** Сдвинуть тайлы вниз */
 	private collapseDown() {
 		for (let x = 0; x < this.width; x++) {
-			const col: (TileModel | null)[] = [];
+			const col: TileModel[] = [];
 
 			for (let y = this.height - 1; y >= 0; y--) {
 				const t = this.grid[y][x];
@@ -167,12 +222,11 @@ export default class FieldModel {
 		}
 	}
 
+	/** Заполнить пустоты новыми тайлами */
 	private refillTop() {
-		for (let x = 0; x < this.width; x++) {
-			for (let y = 0; y < this.height; y++) {
-				if (this.grid[y][x] === null) {
-					this.grid[y][x] = this.randomTile();
-				}
+		for (let y = 0; y < this.height; y++) {
+			for (let x = 0; x < this.width; x++) {
+				if (this.grid[y][x] === null) this.grid[y][x] = this.randomTile();
 			}
 		}
 	}
