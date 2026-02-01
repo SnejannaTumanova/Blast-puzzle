@@ -1,10 +1,20 @@
 const { ccclass, property } = cc._decorator;
-import TileModel, { TileColor } from '../models/TileModel';
+import TileModel, { TileColor, TileSpecial } from '../models/TileModel';
 
 @ccclass
 export default class TileView extends cc.Component {
 	@property([cc.SpriteFrame])
 	colorSprites: cc.SpriteFrame[] = [];
+
+	// ✅ спец-иконки (задашь в инспекторе)
+	@property(cc.SpriteFrame)
+	specialBomb: cc.SpriteFrame = null; // block_bomb
+
+	@property(cc.SpriteFrame)
+	specialRocketH: cc.SpriteFrame = null; // block_rockets_horizontal
+
+	@property(cc.SpriteFrame)
+	specialRocketV: cc.SpriteFrame = null; // block_rocket_vertical
 
 	model: TileModel = null;
 	tileId: number = -1;
@@ -24,6 +34,29 @@ export default class TileView extends cc.Component {
 	private updateView() {
 		if (!this.model || !this.sprite) return;
 
+		// ✅ спецтайл рисуем спец-иконкой
+		if (this.model.isSpecial) {
+			switch (this.model.special) {
+				case TileSpecial.Bomb:
+					if (this.specialBomb) this.sprite.spriteFrame = this.specialBomb;
+					return;
+
+				case TileSpecial.RocketH:
+					if (this.specialRocketH)
+						this.sprite.spriteFrame = this.specialRocketH;
+					return;
+
+				case TileSpecial.RocketV:
+					if (this.specialRocketV)
+						this.sprite.spriteFrame = this.specialRocketV;
+					return;
+
+				default:
+					break;
+			}
+		}
+
+		// обычный тайл — по цвету
 		const map: Record<TileColor, number> = {
 			[TileColor.Blue]: 0,
 			[TileColor.Green]: 1,

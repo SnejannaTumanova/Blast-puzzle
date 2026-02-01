@@ -3,6 +3,9 @@ import GameStateModel from '../models/GameStateModel';
 import FieldView from '../views/FieldView';
 import HUDView from '../views/HUDView';
 import BoostersView, { BoosterKind } from '../views/BoostersView';
+
+import TileModel from '../models/TileModel';
+
 import {
 	getBoostersState,
 	setBoostersState,
@@ -53,22 +56,17 @@ export default class GameController {
 		this.hudView = hudView;
 		this.boostersView = boostersView;
 
-		// ✅ load boosters
 		const saved = getBoostersState(this.DEFAULT_BOOSTERS);
 		this.swapLeft = saved.swapLeft;
 		this.bombLeft = saved.bombLeft;
 
-		// input
 		this.fieldView.onTileClick = (x, y) => this.onTileClicked(x, y);
 
-		// boosters callbacks
 		this.boostersView.onBombClick = () => this.toggleBombMode();
 		this.boostersView.onSwapClick = () => this.toggleSwapMode();
 
 		this.refreshAll();
 	}
-
-	// ===== UI sync =====
 
 	private refreshAll() {
 		this.fieldView.render(this.fieldModel);
@@ -98,15 +96,10 @@ export default class GameController {
 		setBoostersState({ swapLeft: this.swapLeft, bombLeft: this.bombLeft });
 	}
 
-	// ===== Booster toggles =====
-
 	private resetBoosterMode() {
 		this.boosterMode = BoosterMode.None;
 		this.swapFirst = null;
-
-		// ✅ убрать рамку выбора
 		this.fieldView?.clearSelectedCell?.();
-
 		this.syncBoosterUI();
 	}
 
@@ -121,10 +114,7 @@ export default class GameController {
 
 		this.boosterMode = BoosterMode.Bomb;
 		this.swapFirst = null;
-
-		// ✅ на всякий случай чистим рамку (если до этого был swap)
 		this.fieldView?.clearSelectedCell?.();
-
 		this.syncBoosterUI();
 	}
 
@@ -142,10 +132,7 @@ export default class GameController {
 
 		this.boosterMode = BoosterMode.Swap_First;
 		this.swapFirst = null;
-
-		// ✅ рамку пока не показываем — покажем после выбора первой клетки
 		this.fieldView?.clearSelectedCell?.();
-
 		this.syncBoosterUI();
 	}
 
@@ -155,17 +142,30 @@ export default class GameController {
 		if (this.isBusy) return;
 		if (this.gameState.movesLeft <= 0) return;
 
-		// если выбран бустер — обрабатываем его
+		// бустер
 		if (this.boosterMode !== BoosterMode.None) {
 			this.handleBoosterClick(x, y);
 			return;
 		}
 
-		// обычный burn
+		const t = this.fieldModel.getTile(x, y);
+
+		// ✅ спецтайл: цепная реакция
+		if (t && t.isSpecial) {
+			const group = this.fieldModel.getSpecialCascadeGroup(x, y);
+			if (group.length === 0) return;
+
+			// спец-активация НЕ спавнит новый спецтайл (чтобы цепочки не плодили бесконечно)
+			this.performBurnMove(group, { x, y }, false);
+			return;
+		}
+
+		// обычный blast
 		const group = this.fieldModel.getBurnGroup(x, y, this.MIN_GROUP);
 		if (group.length === 0) return;
 
-		this.performBurnMove(group);
+		// обычный клик может создать спецтайл на origin
+		this.performBurnMove(group, { x, y }, true);
 	}
 
 	private handleBoosterClick(x: number, y: number) {
@@ -182,12 +182,12 @@ export default class GameController {
 					return;
 				}
 
-				// spend + save
 				this.bombLeft -= 1;
 				this.boostersView?.setBombCount(this.bombLeft);
 				this.saveBoosters();
 
-				this.performBurnMove(cells);
+				// бустер-бомба НЕ создаёт супер-тайлы
+				this.performBurnMove(cells, undefined, false);
 				this.resetBoosterMode();
 				return;
 			}
@@ -200,10 +200,7 @@ export default class GameController {
 
 				this.swapFirst = { x, y };
 				this.boosterMode = BoosterMode.Swap_Second;
-
-				// ✅ подсветить выбранный тайл
 				this.fieldView?.showSelectedCell?.(x, y);
-
 				this.syncBoosterUI();
 				return;
 			}
@@ -222,19 +219,14 @@ export default class GameController {
 				const a = this.swapFirst;
 				const b = { x, y };
 
-				// если кликнули тот же тайл — отмена выбора
 				if (a.x === b.x && a.y === b.y) {
 					this.swapFirst = null;
 					this.boosterMode = BoosterMode.Swap_First;
-
-					// ✅ убрать рамку
 					this.fieldView?.clearSelectedCell?.();
-
 					this.syncBoosterUI();
 					return;
 				}
 
-				// spend + save
 				this.swapLeft -= 1;
 				this.boostersView?.setSwapCount(this.swapLeft);
 				this.saveBoosters();
@@ -244,7 +236,6 @@ export default class GameController {
 				this.fieldModel.swapTiles(a, b);
 
 				this.fieldView.applyModelAnimated(this.fieldModel, () => {
-					// swap = ход
 					this.gameState.movesLeft -= 1;
 
 					this.hudView?.setMoves(this.gameState.movesLeft);
@@ -280,11 +271,15 @@ export default class GameController {
 
 	// ===== Shared move pipeline =====
 
-	private performBurnMove(group: CellPos[]) {
+	private performBurnMove(
+		group: CellPos[],
+		origin?: CellPos,
+		allowSpawnSpecial: boolean = true
+	) {
 		this.isBusy = true;
 
 		this.fieldView.playBurn(group, () => {
-			this.fieldModel.applyBurn(group);
+			this.fieldModel.applyBurn(group, origin, allowSpawnSpecial);
 
 			this.fieldView.applyModelAnimated(this.fieldModel, () => {
 				this.gameState.movesLeft -= 1;

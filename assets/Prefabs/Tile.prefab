@@ -133,6 +133,15 @@
         "__uuid__": "f0a6a172-30c0-4675-bdb9-0cd1524ab615"
       }
     ],
+    "specialBomb": {
+      "__uuid__": "401446ca-0117-4a54-98ca-0b9de330a387"
+    },
+    "specialRocketH": {
+      "__uuid__": "ea0aa240-2e0a-475f-bc5d-fd04bd7acaa1"
+    },
+    "specialRocketV": {
+      "__uuid__": "aa09a204-43f7-46df-9b20-224e9158b256"
+    },
     "_id": ""
   },
   {

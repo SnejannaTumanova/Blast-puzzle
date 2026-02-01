@@ -1,4 +1,4 @@
-import TileModel, { TileColor } from './TileModel';
+import TileModel, { TileColor, TileSpecial } from './TileModel';
 
 export type CellPos = { x: number; y: number };
 
@@ -18,11 +18,14 @@ export default class FieldModel {
 	/** Сколько попыток перегенерации поля, чтобы точно был хотя бы один ход */
 	private readonly MAX_REGEN_TRIES = 20;
 
+	/** Порог, начиная с которого создаём супер-тайл на месте клика */
+	private readonly SPECIAL_THRESHOLD = 7;
+
 	constructor(width: number, height: number) {
 		this.width = width;
 		this.height = height;
 		this.grid = [];
-		this.generate(); // гарантируем стартовое поле с ходом
+		this.generate(2);
 	}
 
 	// ===== Generate / Re-generate =====
@@ -36,20 +39,15 @@ export default class FieldModel {
 				this.grid.push(row);
 			}
 
-			// ✅ проверка играбельности на старте
 			if (this.hasAnyMove(minGroupSize)) return;
 		}
-
-		// если вдруг совсем не повезло (очень маловероятно),
-		// оставляем последнюю генерацию как есть
+		// если совсем не повезло — оставляем последнюю генерацию
 	}
 
 	private randomTile(): TileModel {
 		const color = this.colors[Math.floor(Math.random() * this.colors.length)];
-		return new TileModel(color);
+		return new TileModel(color, TileSpecial.None);
 	}
-
-	// ===== Basic access =====
 
 	private isInside(x: number, y: number): boolean {
 		return x >= 0 && x < this.width && y >= 0 && y < this.height;
@@ -65,9 +63,8 @@ export default class FieldModel {
 		this.grid[y][x] = t;
 	}
 
-	// ===== BOOSTERS =====
+	// ===== BOOSTERS (swap/bomb use these) =====
 
-	/** Поменять два тайла местами (Swap booster) */
 	swapTiles(a: CellPos, b: CellPos) {
 		if (!this.isInside(a.x, a.y) || !this.isInside(b.x, b.y)) return;
 
@@ -94,58 +91,57 @@ export default class FieldModel {
 
 	/**
 	 * ✅ Быстрая проверка наличия ходов.
-	 * - для minGroupSize <= 1: всегда true (сжечь можно любой тайл)
-	 * - для minGroupSize == 2: достаточно проверить, есть ли сосед того же цвета
-	 * - для minGroupSize > 2: делаем fallback на поиск групп (редкий кейс)
+	 * - если на поле есть хотя бы 1 спецтайл — ход существует (его можно активировать кликом)
+	 * - для minGroupSize==2: достаточно найти пару соседей одинакового цвета (НЕ спецтайлы)
 	 */
 	hasAnyMove(minGroupSize: number = 2): boolean {
+		// спецтайл = гарантированный ход
+		for (let y = 0; y < this.height; y++) {
+			for (let x = 0; x < this.width; x++) {
+				const t = this.grid[y][x];
+				if (t?.isSpecial) return true;
+			}
+		}
+
 		if (minGroupSize <= 1) return true;
 
 		if (minGroupSize === 2) {
 			for (let y = 0; y < this.height; y++) {
 				for (let x = 0; x < this.width; x++) {
 					const t = this.grid[y][x];
-					if (!t) continue;
+					if (!t || t.isSpecial) continue;
 
 					const c = t.color;
 
-					// проверка вправо и вниз, чтобы не дублировать
+					// вправо/вниз (без дублей)
 					if (x + 1 < this.width) {
 						const r = this.grid[y][x + 1];
-						if (r && r.color === c) return true;
+						if (r && !r.isSpecial && r.color === c) return true;
 					}
 					if (y + 1 < this.height) {
 						const d = this.grid[y + 1][x];
-						if (d && d.color === c) return true;
+						if (d && !d.isSpecial && d.color === c) return true;
 					}
 				}
 			}
 			return false;
 		}
 
-		// fallback: для minGroupSize > 2
-		const visited = new Set<string>();
+		// fallback (если вдруг захочешь minGroupSize > 2)
 		for (let y = 0; y < this.height; y++) {
 			for (let x = 0; x < this.width; x++) {
-				const t = this.grid[y][x];
-				if (!t) continue;
-
-				const key = `${x},${y}`;
-				if (visited.has(key)) continue;
-
-				const group = this.findGroup(x, y);
-				for (const p of group) visited.add(`${p.x},${p.y}`);
-
-				if (group.length >= minGroupSize) return true;
+				const g = this.getBurnGroup(x, y, minGroupSize);
+				if (g.length > 0) return true;
 			}
 		}
 		return false;
 	}
 
-	/** Найти группу одинакового цвета вокруг (x,y) */
+	/** Группа одинакового цвета вокруг (x,y). Спецтайлы НЕ участвуют в обычных группах. */
 	findGroup(x: number, y: number): CellPos[] {
 		const start = this.getTile(x, y);
 		if (!start) return [];
+		if (start.isSpecial) return []; // спецтайл активируется отдельно (клик -> спец-логика)
 
 		const color = start.color;
 		const stack: CellPos[] = [{ x, y }];
@@ -159,6 +155,7 @@ export default class FieldModel {
 
 			const t = this.grid[ny][nx];
 			if (!t) return;
+			if (t.isSpecial) return; // спецтайлы не добавляем в обычную группу
 			if (t.color !== color) return;
 
 			visited.add(key);
@@ -180,20 +177,146 @@ export default class FieldModel {
 		return result;
 	}
 
-	/** Получить группу для сжигания (или пусто, если меньше minGroupSize) */
 	getBurnGroup(x: number, y: number, minGroupSize: number = 2): CellPos[] {
 		const g = this.findGroup(x, y);
 		return g.length >= minGroupSize ? g : [];
 	}
 
-	/** Применить сжигание + падение + досып */
+	// ===== Specials (super tiles + chains) =====
+
+	private randomSpecial(): TileSpecial {
+		const pool: TileSpecial[] = [
+			TileSpecial.Bomb,
+			TileSpecial.RocketH,
+			TileSpecial.RocketV,
+		];
+		return pool[Math.floor(Math.random() * pool.length)];
+	}
+
+	private getSpecialArea(
+		x: number,
+		y: number,
+		special: TileSpecial
+	): CellPos[] {
+		const res: CellPos[] = [];
+
+		if (special === TileSpecial.Bomb) {
+			// 3x3 => radius = 1
+			for (let yy = y - 1; yy <= y + 1; yy++) {
+				for (let xx = x - 1; xx <= x + 1; xx++) {
+					if (!this.isInside(xx, yy)) continue;
+					if (!this.grid[yy][xx]) continue;
+					res.push({ x: xx, y: yy });
+				}
+			}
+			return res;
+		}
+
+		if (special === TileSpecial.RocketH) {
+			// row
+			for (let xx = 0; xx < this.width; xx++) {
+				if (this.grid[y][xx]) res.push({ x: xx, y });
+			}
+			return res;
+		}
+
+		if (special === TileSpecial.RocketV) {
+			// col
+			for (let yy = 0; yy < this.height; yy++) {
+				if (this.grid[yy][x]) res.push({ x, y: yy });
+			}
+			return res;
+		}
+
+		return res;
+	}
+
+	/**
+	 * Цепная реакция: если в зоне есть другие спецтайлы — добавляем их эффект тоже.
+	 * Возвращает полный список клеток к сжиганию.
+	 */
+	getSpecialCascadeGroup(x: number, y: number): CellPos[] {
+		const start = this.getTile(x, y);
+		if (!start || !start.isSpecial) return [];
+
+		const queue: CellPos[] = [{ x, y }];
+		const processedSpecial = new Set<string>();
+		const burn = new Set<string>();
+
+		while (queue.length > 0) {
+			const p = queue.shift()!;
+			const key = `${p.x},${p.y}`;
+			if (processedSpecial.has(key)) continue;
+			processedSpecial.add(key);
+
+			const t = this.getTile(p.x, p.y);
+			if (!t || !t.isSpecial) continue;
+
+			const area = this.getSpecialArea(p.x, p.y, t.special);
+			for (const c of area) {
+				const k = `${c.x},${c.y}`;
+				burn.add(k);
+
+				const tt = this.getTile(c.x, c.y);
+				if (tt?.isSpecial) {
+					queue.push({ x: c.x, y: c.y });
+				}
+			}
+		}
+
+		// burn set -> array
+		const result: CellPos[] = [];
+		burn.forEach((k) => {
+			const [sx, sy] = k.split(',').map((n) => parseInt(n, 10));
+			result.push({ x: sx, y: sy });
+		});
+		return result;
+	}
+
+	// ===== Burn / Collapse / Refill =====
+
+	/**
+	 * Применить сжигание + падение + досып
+	 * - origin: точка клика (чтобы создать спецтайл именно там)
+	 * - allowSpawnSpecial: создавать ли спецтайл при большом матче (true для обычного клика; false для бустеров/цепочек)
+	 */
 	applyBurn(
 		group: CellPos[],
+		origin?: CellPos,
+		allowSpawnSpecial: boolean = true,
 		ensurePlayableAfter: boolean = false,
 		minGroupSize: number = 2
 	) {
+		let spawnAt: CellPos | null = null;
+
+		// если большой матч — создаём спецтайл на origin (заменяя тайл в origin)
+		if (
+			allowSpawnSpecial &&
+			origin &&
+			group.length >= this.SPECIAL_THRESHOLD &&
+			this.isInside(origin.x, origin.y)
+		) {
+			spawnAt = origin;
+		}
+
+		// удаляем клетки группы; если spawnAt внутри — НЕ удаляем её, заменим на спецтайл
 		for (const p of group) {
-			if (this.isInside(p.x, p.y)) this.grid[p.y][p.x] = null;
+			if (!this.isInside(p.x, p.y)) continue;
+			if (spawnAt && p.x === spawnAt.x && p.y === spawnAt.y) continue;
+			this.grid[p.y][p.x] = null;
+		}
+
+		// ставим спецтайл в spawnAt (цвет берём от исходного тайла, который был в origin)
+		if (spawnAt) {
+			const prev = this.grid[spawnAt.y][spawnAt.x];
+			const baseColor =
+				prev?.color ??
+				this.colors[Math.floor(Math.random() * this.colors.length)];
+
+			this.grid[spawnAt.y][spawnAt.x] = new TileModel(
+				baseColor,
+				this.randomSpecial()
+			);
 		}
 
 		this.collapseDown();
@@ -205,7 +328,6 @@ export default class FieldModel {
 		}
 	}
 
-	/** Сдвинуть тайлы вниз */
 	private collapseDown() {
 		for (let x = 0; x < this.width; x++) {
 			const col: TileModel[] = [];
@@ -222,7 +344,6 @@ export default class FieldModel {
 		}
 	}
 
-	/** Заполнить пустоты новыми тайлами */
 	private refillTop() {
 		for (let y = 0; y < this.height; y++) {
 			for (let x = 0; x < this.width; x++) {
