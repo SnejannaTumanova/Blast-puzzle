@@ -1,28 +1,66 @@
-// Learn TypeScript:
-//  - https://docs.cocos.com/creator/2.4/manual/en/scripting/typescript.html
-// Learn Attribute:
-//  - https://docs.cocos.com/creator/2.4/manual/en/scripting/reference/attributes.html
-// Learn life-cycle callbacks:
-//  - https://docs.cocos.com/creator/2.4/manual/en/scripting/life-cycle-callbacks.html
+import { CellPos } from '../../../domain/board/CellPos';
+import IBoosterAction from '../../../domain/boosters/IBoosterAction';
+import BoosterContext from '../../../gameplay/boosters/BoosterContext';
 
-const {ccclass, property} = cc._decorator;
+export default class SwapBoosterAction implements IBoosterAction {
+	readonly kind = 'swap' as const;
 
-@ccclass
-export default class NewClass extends cc.Component {
+	private first: CellPos | null = null;
 
-    @property(cc.Label)
-    label: cc.Label = null;
+	onEnter(ctx: BoosterContext) {
+		this.first = null;
+		ctx.fieldView.clearSelectedCell?.();
+	}
 
-    @property
-    text: string = 'hello';
+	onExit(ctx: BoosterContext) {
+		this.first = null;
+		ctx.fieldView.clearSelectedCell?.();
+	}
 
-    // LIFE-CYCLE CALLBACKS:
+	onFieldClick(ctx: BoosterContext, pos: CellPos) {
+		const { swapLeft } = ctx.getCounts();
+		if (swapLeft <= 0) {
+			ctx.endBoosterMode();
+			return;
+		}
 
-    // onLoad () {}
+		// первый клик
+		if (!this.first) {
+			this.first = pos;
+			ctx.fieldView.showSelectedCell?.(pos.x, pos.y);
+			return;
+		}
 
-    start () {
+		// второй клик
+		const a = this.first;
+		const b = pos;
 
-    }
+		// кликнули по той же клетке — “сброс выбора”
+		if (a.x === b.x && a.y === b.y) {
+			this.first = null;
+			ctx.fieldView.clearSelectedCell?.();
+			return;
+		}
 
-    // update (dt) {}
+		// списываем бустер
+		ctx.setCounts({ ...ctx.getCounts(), swapLeft: swapLeft - 1 });
+		ctx.boostersView.setSwapCount(swapLeft - 1);
+		ctx.saveBoosters();
+
+		ctx.setBusy(true);
+		ctx.field.swapTiles(a, b);
+
+		ctx.fieldView.applyModelAnimated(ctx.field, () => {
+			// swap тратит ход
+			ctx.gameState.movesLeft -= 1;
+			ctx.hudView.setMoves(ctx.gameState.movesLeft);
+			ctx.hudView.setScore(ctx.gameState.score, ctx.gameState.targetScore);
+
+			// проверки проигрыша/ходов остаются в контроллере
+			ctx.setBusy(false);
+			ctx.afterSwapMove();
+		});
+
+		ctx.endBoosterMode();
+	}
 }

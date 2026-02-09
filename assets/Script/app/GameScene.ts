@@ -15,6 +15,9 @@ import RocketVBehavior from '../features/specials/behaviors/RocketVBehavior';
 import SpecialCascadeResolver from '../domain/rules/SpecialCascadeResolver';
 import MatchFinder from '../domain/rules/MatchFinder';
 import MoveFinder from '../domain/rules/MoveFinder';
+import BoosterRegistry from '../domain/boosters/BoosterRegistry';
+import BombBoosterAction from '../features/boosters/actions/BombBoosterAction';
+import SwapBoosterAction from '../features/boosters/actions/SwapBoosterAction';
 
 const { ccclass, property } = cc._decorator;
 
@@ -65,6 +68,10 @@ export default class GameScene extends cc.Component {
 
 		const cascadeResolver = new SpecialCascadeResolver(specialRegistry);
 
+		const boosterRegistry = new BoosterRegistry();
+		boosterRegistry.register(new BombBoosterAction());
+		boosterRegistry.register(new SwapBoosterAction());
+
 		const controller = new GameController(
 			fieldModel,
 			gameState,
@@ -72,6 +79,7 @@ export default class GameScene extends cc.Component {
 			this.hudView,
 			this.boostersView,
 			cascadeResolver,
+			boosterRegistry,
 		);
 
 		// Overlay callbacks

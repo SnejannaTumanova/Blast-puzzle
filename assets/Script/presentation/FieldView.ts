@@ -37,6 +37,8 @@ export default class FieldView extends cc.Component {
 
 	onTileClick: ((x: number, y: number) => void) | null = null;
 
+	onRightClick: (() => void) | null = null;
+
 	private currentModel: FieldModel = null;
 	private isAnimating = false;
 
@@ -429,13 +431,57 @@ export default class FieldView extends cc.Component {
 		this.onTileClick?.(cx, cy);
 	}
 
-	// публично, чтобы GameScene мог включать/выключать
+	private onMouseDown(e: cc.Event.EventMouse) {
+		if (!this.inputEnabled) return;
+		if (this.isAnimating || !this.currentModel) return;
+
+		// ПКМ — отмена бустера/выбора
+		if (e.getButton() === cc.Event.EventMouse.BUTTON_RIGHT) {
+			e.stopPropagation();
+			this.onRightClick?.();
+			return;
+		}
+
+		// только ЛКМ считаем “кликом по клетке”
+		if (e.getButton() !== cc.Event.EventMouse.BUTTON_LEFT) return;
+
+		const screen = e.getLocation();
+		const local = this.node.convertToNodeSpaceAR(cc.v3(screen.x, screen.y));
+
+		const o = this.getBoardOrigin(this.currentModel);
+		const left = -o.totalW / 2 + this.offsetX;
+		const top = o.totalH / 2 + this.offsetY;
+
+		const px = local.x - left;
+		const py = top - local.y;
+
+		if (px < 0 || px > o.totalW || py < 0 || py > o.totalH) return;
+
+		const cx = Math.floor(px / o.stepX);
+		const cy = Math.floor(py / o.stepY);
+
+		if (cx < 0 || cx >= this.currentModel.width) return;
+		if (cy < 0 || cy >= this.currentModel.height) return;
+
+		const inCellX = px - cx * o.stepX <= this.cellW;
+		const inCellY = py - cy * o.stepY <= this.cellH;
+		if (!inCellX || !inCellY) return;
+
+		e.stopPropagation();
+		this.onTileClick?.(cx, cy);
+	}
+
 	enableInput() {
-		this.node.on(cc.Node.EventType.TOUCH_START, this.onLocalTouch, this);
+		if (cc.sys.isMobile) {
+			this.node.on(cc.Node.EventType.TOUCH_START, this.onLocalTouch, this);
+		} else {
+			this.node.on(cc.Node.EventType.MOUSE_DOWN, this.onMouseDown, this);
+		}
 	}
 
 	disableInput() {
 		this.node.off(cc.Node.EventType.TOUCH_START, this.onLocalTouch, this);
+		this.node.off(cc.Node.EventType.MOUSE_DOWN, this.onMouseDown, this);
 	}
 
 	showSelectedCell(x: number, y: number) {

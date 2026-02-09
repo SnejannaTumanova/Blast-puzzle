@@ -1,28 +1,30 @@
-// Learn TypeScript:
-//  - https://docs.cocos.com/creator/2.4/manual/en/scripting/typescript.html
-// Learn Attribute:
-//  - https://docs.cocos.com/creator/2.4/manual/en/scripting/reference/attributes.html
-// Learn life-cycle callbacks:
-//  - https://docs.cocos.com/creator/2.4/manual/en/scripting/life-cycle-callbacks.html
+import { CellPos } from '../../../domain/board/CellPos';
+import IBoosterAction from '../../../domain/boosters/IBoosterAction';
+import BoosterContext from '../../../gameplay/boosters/BoosterContext';
 
-const {ccclass, property} = cc._decorator;
+export default class BombBoosterAction implements IBoosterAction {
+	readonly kind = 'bomb' as const;
 
-@ccclass
-export default class NewClass extends cc.Component {
+	onFieldClick(ctx: BoosterContext, pos: CellPos) {
+		const { bombLeft } = ctx.getCounts();
+		if (bombLeft <= 0) {
+			ctx.endBoosterMode();
+			return;
+		}
 
-    @property(cc.Label)
-    label: cc.Label = null;
+		const cells = ctx.field.getCellsInRadius(pos.x, pos.y, ctx.bombRadius);
+		if (!cells.length) {
+			ctx.endBoosterMode();
+			return;
+		}
 
-    @property
-    text: string = 'hello';
+		ctx.setCounts({ ...ctx.getCounts(), bombLeft: bombLeft - 1 });
+		ctx.boostersView.setBombCount(bombLeft - 1);
+		ctx.saveBoosters();
 
-    // LIFE-CYCLE CALLBACKS:
+		// бомба НЕ создаёт спецтайлы
+		ctx.performBurnMove(cells, undefined, false);
 
-    // onLoad () {}
-
-    start () {
-
-    }
-
-    // update (dt) {}
+		ctx.endBoosterMode();
+	}
 }

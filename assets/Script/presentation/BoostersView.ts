@@ -1,6 +1,6 @@
-const { ccclass, property } = cc._decorator;
+import { BoosterKind } from '../features/boosters/BoosterKind';
 
-export type BoosterKind = 'none' | 'swap' | 'bomb';
+const { ccclass, property } = cc._decorator;
 
 const TAG_PULSE = 1001;
 const TAG_PRESS = 1002;
@@ -93,7 +93,7 @@ export default class BoostersView extends cc.Component {
 	private syncButtonVisual(
 		node: cc.Node,
 		shouldBeActive: boolean,
-		enabled: boolean
+		enabled: boolean,
 	) {
 		if (!node || !node.isValid) return;
 
@@ -140,7 +140,7 @@ export default class BoostersView extends cc.Component {
 		node.scale = 1.06;
 
 		const pulse = cc.repeatForever(
-			cc.sequence(cc.scaleTo(0.35, 1.06), cc.scaleTo(0.35, 1.03))
+			cc.sequence(cc.scaleTo(0.35, 1.06), cc.scaleTo(0.35, 1.03)),
 		);
 
 		// @ts-ignore
@@ -184,7 +184,7 @@ export default class BoostersView extends cc.Component {
 		// нажатие: чуть уменьшаем от текущего base и возвращаемся в base
 		const press = cc.sequence(
 			cc.scaleTo(0.06, base * 0.94),
-			cc.scaleTo(0.08, base)
+			cc.scaleTo(0.08, base),
 		);
 
 		// @ts-ignore
