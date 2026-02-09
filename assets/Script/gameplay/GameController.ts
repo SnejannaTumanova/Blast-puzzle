@@ -1,16 +1,17 @@
-import FieldModel, { CellPos } from '../models/FieldModel';
-import GameStateModel from '../models/GameStateModel';
-import FieldView from '../views/FieldView';
-import HUDView from '../views/HUDView';
-import BoostersView, { BoosterKind } from '../views/BoostersView';
-
-import TileModel from '../models/TileModel';
-
 import {
 	getBoostersState,
 	setBoostersState,
 	BoostersState,
 } from '../config/BoostersProgress';
+import { CellPos } from '../domain/board/CellPos';
+import FieldModel from '../domain/board/FieldModel';
+import GameStateModel from '../domain/game/GameStateModel';
+import MatchFinder from '../domain/rules/MatchFinder';
+import SpecialCascadeResolver from '../domain/rules/SpecialCascadeResolver';
+import BoostersView, { BoosterKind } from '../presentation/BoostersView';
+import FieldView from '../presentation/FieldView';
+import HUDView from '../presentation/HUDView';
+import MoveFinder from '../domain/rules/MoveFinder';
 
 enum BoosterMode {
 	None = 'None',
@@ -43,18 +44,24 @@ export default class GameController {
 	private swapLeft = 0;
 	private bombLeft = 0;
 
+	private cascadeResolver: SpecialCascadeResolver;
+	private matchFinder = new MatchFinder();
+	private moveFinder = new MoveFinder(this.matchFinder);
+
 	constructor(
 		fieldModel: FieldModel,
 		gameState: GameStateModel,
 		fieldView: FieldView,
 		hudView: HUDView,
-		boostersView: BoostersView
+		boostersView: BoostersView,
+		cascadeResolver: SpecialCascadeResolver,
 	) {
 		this.fieldModel = fieldModel;
 		this.gameState = gameState;
 		this.fieldView = fieldView;
 		this.hudView = hudView;
 		this.boostersView = boostersView;
+		this.cascadeResolver = cascadeResolver;
 
 		const saved = getBoostersState(this.DEFAULT_BOOSTERS);
 		this.swapLeft = saved.swapLeft;
@@ -85,9 +92,9 @@ export default class GameController {
 			this.boosterMode === BoosterMode.Bomb
 				? 'bomb'
 				: this.boosterMode === BoosterMode.Swap_First ||
-				  this.boosterMode === BoosterMode.Swap_Second
-				? 'swap'
-				: 'none';
+					  this.boosterMode === BoosterMode.Swap_Second
+					? 'swap'
+					: 'none';
 
 		this.boostersView?.setActiveBooster?.(kind);
 	}
@@ -152,7 +159,7 @@ export default class GameController {
 
 		// ✅ спецтайл: цепная реакция
 		if (t && t.isSpecial) {
-			const group = this.fieldModel.getSpecialCascadeGroup(x, y);
+			const group = this.cascadeResolver.resolve(this.fieldModel, { x, y });
 			if (group.length === 0) return;
 
 			// спец-активация НЕ спавнит новый спецтайл (чтобы цепочки не плодили бесконечно)
@@ -161,7 +168,11 @@ export default class GameController {
 		}
 
 		// обычный blast
-		const group = this.fieldModel.getBurnGroup(x, y, this.MIN_GROUP);
+		const group = this.matchFinder.getBurnGroup(
+			this.fieldModel,
+			{ x, y },
+			this.MIN_GROUP,
+		);
 		if (group.length === 0) return;
 
 		// обычный клик может создать спецтайл на origin
@@ -241,7 +252,7 @@ export default class GameController {
 					this.hudView?.setMoves(this.gameState.movesLeft);
 					this.hudView?.setScore(
 						this.gameState.score,
-						this.gameState.targetScore
+						this.gameState.targetScore,
 					);
 
 					if (this.gameState.isLose()) {
@@ -250,7 +261,7 @@ export default class GameController {
 						return;
 					}
 
-					if (!this.fieldModel.hasAnyMove(this.MIN_GROUP)) {
+					if (!this.moveFinder.hasAnyMove(this.fieldModel, this.MIN_GROUP)) {
 						this.isBusy = true;
 						this.onGameEnd?.('lose', 'Нет доступных ходов');
 						return;
@@ -274,7 +285,7 @@ export default class GameController {
 	private performBurnMove(
 		group: CellPos[],
 		origin?: CellPos,
-		allowSpawnSpecial: boolean = true
+		allowSpawnSpecial: boolean = true,
 	) {
 		this.isBusy = true;
 
@@ -291,7 +302,7 @@ export default class GameController {
 				this.hudView?.setMoves(this.gameState.movesLeft);
 				this.hudView?.setScore(
 					this.gameState.score,
-					this.gameState.targetScore
+					this.gameState.targetScore,
 				);
 
 				if (this.gameState.isWin()) {
@@ -306,7 +317,7 @@ export default class GameController {
 					return;
 				}
 
-				if (!this.fieldModel.hasAnyMove(this.MIN_GROUP)) {
+				if (!this.moveFinder.hasAnyMove(this.fieldModel, this.MIN_GROUP)) {
 					this.isBusy = true;
 					this.onGameEnd?.('lose', 'Нет доступных ходов');
 					return;

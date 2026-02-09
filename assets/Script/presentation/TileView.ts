@@ -1,5 +1,6 @@
+import TileModel, { TileSpecial, TileColor } from '../domain/board/TileModel';
+
 const { ccclass, property } = cc._decorator;
-import TileModel, { TileColor, TileSpecial } from '../models/TileModel';
 
 @ccclass
 export default class TileView extends cc.Component {

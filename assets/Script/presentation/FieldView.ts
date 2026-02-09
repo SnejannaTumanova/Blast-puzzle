@@ -1,10 +1,9 @@
-import FieldModel from '../models/FieldModel';
-import TileModel from '../models/TileModel';
+import { CellPos } from '../domain/board/CellPos';
+import FieldModel from '../domain/board/FieldModel';
+import TileModel from '../domain/board/TileModel';
 import TileView from './TileView';
 
 const { ccclass, property } = cc._decorator;
-
-type Pos = { x: number; y: number };
 
 @ccclass
 export default class FieldView extends cc.Component {
@@ -112,7 +111,7 @@ export default class FieldView extends cc.Component {
 		this.scheduleOnce(() => this.drawDebug(), 0);
 	}
 
-	playBurn(group: Pos[], done: () => void) {
+	playBurn(group: CellPos[], done: () => void) {
 		if (!group || group.length === 0) return done();
 
 		this.isAnimating = true;
@@ -385,7 +384,7 @@ export default class FieldView extends cc.Component {
 					p.x - this.cellW / 2,
 					p.y - this.cellH / 2,
 					this.cellW,
-					this.cellH
+					this.cellH,
 				);
 			}
 		}
@@ -473,8 +472,8 @@ export default class FieldView extends cc.Component {
 		this.selectNode.runAction(
 			cc.spawn(
 				cc.fadeTo(0.1, 255),
-				cc.sequence(cc.scaleTo(0.1, 1.06), cc.scaleTo(0.08, 1.0))
-			)
+				cc.sequence(cc.scaleTo(0.1, 1.06), cc.scaleTo(0.08, 1.0)),
+			),
 		);
 	}
 }
